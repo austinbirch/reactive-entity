@@ -1,0 +1,6 @@
+{:paths ["src" "resources"]
+ :deps {org.clojure/clojurescript {:mvn/version "1.10.597"}
+        reagent/reagent {:mvn/version "1.0.0"}
+        datascript/datascript {:mvn/version "1.0.3"}}
+ :aliases
+ {:test {:extra-paths ["test"]}}}
