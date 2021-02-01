@@ -16,3 +16,4 @@
 /.shadow-cljs
 /node_modules
 /resources/demo/public/js
+pom.xml
