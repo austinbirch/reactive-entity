@@ -1,0 +1,16 @@
+{:deps {:aliases [:demo]}
+ :builds
+ {:demo
+  {:id :demo
+   :target :browser
+   :output-dir "resources/demo/public/js"
+   :asset-path "js"
+   :modules {:demo {:entries [austinbirch.reactive-entity.demo]}}
+   :compiler-options {:infer-externs :auto
+                      :externs ["datascript/externs.js"]}
+   :devtools {:http-root "resources/demo/public"
+              :http-port 8080
+              :watch-dir "resources/demo/public"
+              :preloads [devtools.preload]
+              :loader-mode :eval}
+   :release {:compiler-options {:source-map true}}}}}

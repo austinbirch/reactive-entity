@@ -11,5 +11,8 @@
 .hg/
 
 .DS_Store
-reactive-entity.iml
-.idea
+/reactive-entity.iml
+/.idea
+/.shadow-cljs
+/node_modules
+/resources/demo/public/js
