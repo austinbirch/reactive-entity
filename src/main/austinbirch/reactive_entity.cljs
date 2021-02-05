@@ -59,7 +59,8 @@
           eid (::eid e)
           v (get (d/entity db eid) attr)]
       (if (and (not (nil? v))
-               (datascript.db/ref? db attr))
+               (or (datascript.db/ref? db attr)
+                   (datascript.db/reverse-ref? attr)))
         (if (set? v)
           (->> v
                (map (fn [e]
@@ -119,17 +120,52 @@
   (and (instance? ReactiveEntity that)
        (= (.-eid this) (.-eid ^ReactiveEntity that))))
 
+(defn reverse-subs
+  "Returns only the subscriptions that are for reverse attribute lookups. As
+  these won't be reversed in the tx-data, we need to invert to the 'forward'
+  ref attribute, then test tx-data against that.
+
+  Might actually be better to store these reverse-subs in the cache
+  separately, then we wouldn't have to do this step. We could just use the same
+  index-like method for finding affected [e a] pairs as we do for other
+  attributes."
+  [subs]
+  (reduce (fn [acc [eid attrs->reactive-pair]]
+            (let [reverse-attrs (->> attrs->reactive-pair
+                                     (filter (fn [[attr _]]
+                                               (datascript.db/reverse-ref? attr)))
+                                     (map (fn [[attr reactive-pair]]
+                                            [(datascript.db/reverse-ref attr)
+                                             reactive-pair]))
+                                     (into {}))]
+              (if (empty? reverse-attrs)
+                acc
+                (assoc acc eid reverse-attrs))))
+          {}
+          subs))
+
+(defn mentioned-eid+attr
+  [subs tx-data]
+  (let [reverse-subs' (reverse-subs subs)]
+    (reduce (fn [acc [e a v]]
+              (cond
+                (some? (get-in subs [e a]))
+                (assoc acc [e a] true)
+
+                (and (some? (get-in reverse-subs' [v a]))
+                     (datascript.db/reverse-ref? (datascript.db/reverse-ref? a)))
+                (assoc acc [v (datascript.db/reverse-ref a)] true)
+
+                :else
+                acc))
+            {}
+            tx-data)))
+
 (defn process-tx-report
   [tx-report]
   (let [subs (:subs @state)
-        tx-data (:tx-data tx-report)
-        mentioned-eid+attr (reduce (fn [acc [e a]]
-                                     (if (some? (get-in subs [e a]))
-                                       (assoc acc [e a] true)
-                                       acc))
-                                   {}
-                                   tx-data)]
-    (doseq [[e a] (keys mentioned-eid+attr)]
+        tx-data (:tx-data tx-report)]
+    (doseq [[e a] (keys (mentioned-eid+attr subs tx-data))]
       (let [ratom (get-in subs [e a :ratom])
             v (lookup {::eid e} a)]
         (reset! ratom v)))))
