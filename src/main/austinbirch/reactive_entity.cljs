@@ -46,7 +46,7 @@
   (when (not-empty (:subs @state))
     (js/console.error "subs cache should be empty after clearing it.")))
 
-(declare ->ReactiveEntity equiv-entity)
+(declare ->ReactiveEntity equiv-entity reactive-entity-lookup)
 
 (defn entity
   [eid]
@@ -90,16 +90,29 @@
   (-equiv [this o] (equiv-entity this o))
 
   ILookup
-  (-lookup [this attr]
-    (let [db-conn (:db-conn @state)
-          db @db-conn]
-      (reactive-lookup db {::eid eid} attr)))
-  (-lookup [this attr not-found]
-    (let [db-conn (:db-conn @state)
-          db @db-conn]
-      (if-some [v (reactive-lookup db {::eid eid} attr)]
-        v
-        not-found))))
+  (-lookup [this attr] (reactive-entity-lookup this attr nil))
+  (-lookup [this attr not-found] (reactive-entity-lookup this attr not-found))
+
+  IFn
+  (-invoke [this attr] (reactive-entity-lookup this attr nil))
+  (-invoke [this attr not-found] (reactive-entity-lookup this attr not-found))
+
+  IHash
+  (-hash [_] (hash eid))
+
+  IAssociative
+  (-contains-key?
+    [this attr]
+    (not= ::not-found
+          (reactive-entity-lookup this attr ::not-found))))
+
+(defn reactive-entity-lookup
+  [^ReactiveEntity this attr not-found]
+  (let [db @(:db-conn @state)
+        eid (.-eid this)]
+    (if-some [v (reactive-lookup db {::eid eid} attr)]
+      v
+      not-found)))
 
 (defn equiv-entity
   [^ReactiveEntity this that]
