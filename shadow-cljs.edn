@@ -1,6 +1,21 @@
 {:deps {:aliases [:demo]}
  :builds
- {:demo
+ {:test
+  {:id :test
+   :target :node-test
+   :output-to "out/node-tests.js"
+   :ns-regexp "-test$"
+   :autorun true}
+
+  :browser-test
+  {:id :browser-test
+   :target :browser-test
+   :test-dir "resources/test/public"
+   :devtools {:http-port 8021
+              :http-root "resources/test/public"}
+   :ns-regexp "-test$"}
+
+  :demo
   {:id :demo
    :target :browser
    :output-dir "resources/demo/public/js"

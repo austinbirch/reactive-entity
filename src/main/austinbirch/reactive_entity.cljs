@@ -1,4 +1,5 @@
 (ns austinbirch.reactive-entity
+  (:refer-clojure :exclude [exists?])
   (:require [datascript.core :as d]
             [datascript.db]
             [reagent.ratom :as ratom]))
@@ -10,41 +11,45 @@
 ;;   transact an entity with `:id` = "1234", we should pick up the
 ;;   render from there?
 ;; - currently resolving at first lookup, and then never resolving
-;;   eids afer that - ideally don't want to have to resolve eids on
+;;   eids after that - ideally don't want to have to resolve eids on
 ;;   each `process-tx-report`?
 
 (def initial-state {:subs {}
+                    :reverse-subs {}
                     :db-conn nil})
 
 (defonce state (atom initial-state))
 
 (defn cache-reactive-pair!
   [eid attr reactive-pair]
-  (let [cache-path [:subs eid attr]]
+  (let [reverse? (datascript.db/reverse-ref? attr)
+        cache-bucket (if reverse?
+                       :reverse-subs
+                       :subs)
+        cache-key (if reverse?
+                    [attr eid]
+                    [eid attr])]
     (ratom/add-on-dispose! (:reaction reactive-pair)
                            (fn []
-                             (let [existing-reactive-pair (get-in @state cache-path)
+                             (let [existing-reactive-pair (get-in @state [cache-bucket cache-key])
                                    existing-reaction (:reaction existing-reactive-pair)]
                                (when (identical? existing-reaction (:reaction reactive-pair))
-                                 (swap! state update
-                                        :subs (fn [subs]
-                                                (let [attrs (get subs eid)
-                                                      next-attrs (dissoc attrs attr)]
-                                                  (if (empty? next-attrs)
-                                                    (dissoc subs eid)
-                                                    (assoc subs eid next-attrs)))))))))
-    (swap! state assoc-in cache-path reactive-pair)
+                                 (swap! state update cache-bucket
+                                        (fn [cache]
+                                          (dissoc cache cache-key)))))))
+    (swap! state assoc-in [cache-bucket cache-key] reactive-pair)
     nil))
 
 (defn clear-cache!
   []
-  (let [subs (:subs @state)]
-    (doseq [[eid attrs->reactive-pair] subs]
-      (doseq [[attr reactive-pair] attrs->reactive-pair]
+  (doseq [cache-bucket [:subs :reverse-subs]]
+    (let [cache (get @state cache-bucket)]
+      (doseq [[cache-key reactive-pair] cache]
         (when-let [reaction (:reaction reactive-pair)]
-          (ratom/dispose! reaction)))))
-  (when (not-empty (:subs @state))
-    (js/console.error "subs cache should be empty after clearing it.")))
+          (ratom/dispose! reaction))))
+    (when (not-empty (get @state cache-bucket))
+      (js/console.error (ex-info "cache bucket should be empty after clearing it."
+                                 {:cache-bucket cache-bucket})))))
 
 (declare ->ReactiveEntity equiv-entity reactive-entity-lookup)
 
@@ -58,33 +63,48 @@
     (let [db @db-conn
           eid (::eid e)
           v (get (d/entity db eid) attr)]
-      (if (and (not (nil? v))
-               (or (datascript.db/ref? db attr)
-                   (datascript.db/reverse-ref? attr)))
+
+      (cond
+        ;; db/id requires us to check index to actually find out if the entity really exists
+        (= attr :db/id)
+        (let [entid (datascript.db/entid db eid)]
+          (if (seq (d/datoms db :eavt entid))
+            entid
+            nil))
+
+        (and (not (nil? v))
+             (or (datascript.db/ref? db attr)
+                 (datascript.db/reverse-ref? attr)))
         (if (set? v)
           (->> v
                (map (fn [e]
                       (entity (:db/id e))))
                set)
           (entity (:db/id v)))
+
+        :else
         v))))
 
 (defn reactive-lookup
   [db e attr]
-  (let [resolved-eid (datascript.db/entid db (::eid e))]
-    (if (nil? resolved-eid)
-      (throw (ex-info (str "Cannot perform reactive lookup for entity that does not exist")
-                      {:eid (::eid e)
-                       :attr attr}))
-      (if-let [reaction (get-in @state [:subs resolved-eid attr :reaction])]
-        @reaction
-        (let [ratom (ratom/atom (lookup e attr))
-              reaction (ratom/make-reaction #(deref ratom))]
-          (cache-reactive-pair! resolved-eid
-                                attr
-                                {:ratom ratom
-                                 :reaction reaction})
-          @reaction)))))
+  (let [eid (::eid e)
+        reverse? (datascript.db/reverse-ref? attr)
+        cache-bucket (if reverse?
+                       :reverse-subs
+                       :subs)
+        cache-key (if reverse?
+                    [attr eid]
+                    [eid attr])]
+    (if-let [reactive-pair (get-in @state [cache-bucket cache-key])]
+      @(:reaction reactive-pair)
+      (let [initial-v (lookup e attr)
+            ratom (ratom/atom initial-v)
+            reaction (ratom/make-reaction #(deref ratom))]
+        (cache-reactive-pair! eid
+                              attr
+                              {:ratom ratom
+                               :reaction reaction})
+        @reaction))))
 
 (deftype ReactiveEntity [eid]
   IEquiv
@@ -115,58 +135,67 @@
       v
       not-found)))
 
+(defn exists?
+  [^ReactiveEntity this]
+  (some? (reactive-entity-lookup this :db/id nil)))
+
 (defn equiv-entity
   [^ReactiveEntity this that]
   (and (instance? ReactiveEntity that)
        (= (.-eid this) (.-eid ^ReactiveEntity that))))
 
-(defn reverse-subs
-  "Returns only the subscriptions that are for reverse attribute lookups. As
-  these won't be reversed in the tx-data, we need to invert to the 'forward'
-  ref attribute, then test tx-data against that.
-
-  Might actually be better to store these reverse-subs in the cache
-  separately, then we wouldn't have to do this step. We could just use the same
-  index-like method for finding affected [e a] pairs as we do for other
-  attributes."
-  [subs]
-  (reduce (fn [acc [eid attrs->reactive-pair]]
-            (let [reverse-attrs (->> attrs->reactive-pair
-                                     (filter (fn [[attr _]]
-                                               (datascript.db/reverse-ref? attr)))
-                                     (map (fn [[attr reactive-pair]]
-                                            [(datascript.db/reverse-ref attr)
-                                             reactive-pair]))
-                                     (into {}))]
-              (if (empty? reverse-attrs)
-                acc
-                (assoc acc eid reverse-attrs))))
-          {}
-          subs))
+(defn reverse-subs->forward-attrs
+  [reverse-subs]
+  (->> reverse-subs
+       (map (fn [[cache-key _]]
+              (datascript.db/reverse-ref (first cache-key))))
+       set))
 
 (defn mentioned-eid+attr
-  [subs tx-data]
-  (let [reverse-subs' (reverse-subs subs)]
-    (reduce (fn [acc [e a v]]
-              (cond
-                (some? (get-in subs [e a]))
-                (assoc acc [e a] true)
+  [{:keys [subs
+           reverse-subs
+           tx-data]}]
+  (let [forward-refs-for-reverse-subs (reverse-subs->forward-attrs reverse-subs)]
+    (->> tx-data
+         (reduce (fn [acc [e a v tx added?]]
+                   (let [e-a-cache-key [e a]
+                         e-db-id-cache-key [e :db/id]]
+                     (cond
+                       (some? (get subs e-a-cache-key))
+                       (assoc acc {:cache-key e-a-cache-key
+                                   :reverse? false}
+                                  true)
 
-                (and (some? (get-in reverse-subs' [v a]))
-                     (datascript.db/reverse-ref? (datascript.db/reverse-ref? a)))
-                (assoc acc [v (datascript.db/reverse-ref a)] true)
+                       (some? (get subs e-db-id-cache-key))
+                       (assoc acc {:cache-key e-db-id-cache-key
+                                   :reverse? false}
+                                  true)
 
-                :else
-                acc))
-            {}
-            tx-data)))
+                       (and (contains? forward-refs-for-reverse-subs a)
+                            (get reverse-subs [(datascript.db/reverse-ref a) v]))
+                       (assoc acc {:cache-key [(datascript.db/reverse-ref a) v]
+                                   :reverse? true}
+                                  true)
+
+                       :else
+                       acc)))
+                 {})
+         keys
+         set)))
 
 (defn process-tx-report
   [tx-report]
-  (let [subs (:subs @state)
-        tx-data (:tx-data tx-report)]
-    (doseq [[e a] (keys (mentioned-eid+attr subs tx-data))]
-      (let [ratom (get-in subs [e a :ratom])
+  (let [tx-data (:tx-data tx-report)
+        mentioned (mentioned-eid+attr {:subs (:subs @state)
+                                       :reverse-subs (:reverse-subs @state)
+                                       :tx-data tx-data})]
+    (doseq [{:keys [cache-key
+                    reverse?]} mentioned]
+      (let [cache-bucket (get @state (if reverse?
+                                       :reverse-subs
+                                       :subs))
+            ratom (:ratom (get cache-bucket cache-key))
+            [e a] cache-key
             v (lookup {::eid e} a)]
         (reset! ratom v)))))
 

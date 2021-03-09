@@ -16,4 +16,5 @@
 /.shadow-cljs
 /node_modules
 /resources/demo/public/js
+/resources/test/public/js
 pom.xml
