@@ -1,4 +1,3 @@
 {:group-id "austinbirch"
  :artifact-id "reactive-entity"
- :scm-url "https://github.com/austinbirch/reactive-entity"
- :version "0.1.0-SNAPSHOT"}
+ :scm-url "https://github.com/austinbirch/reactive-entity"}
