@@ -1,5 +1,7 @@
 # reactive-entity
 
+[![Clojars Project](https://img.shields.io/clojars/v/austinbirch/reactive-entity.svg)](https://clojars.org/austinbirch/reactive-entity) ![ci](https://github.com/austinbirch/reactive-entity/actions/workflows/ci.yml/badge.svg?branch=main)
+
 A reactive version of [DataScript](https://github.com/tonsky/datascript)’s `d/entity` API for
 your [Reagent](http://reagent-project.github.io/) components.
 
