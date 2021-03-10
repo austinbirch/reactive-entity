@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: '14'
 
-      - name: Test CI workflow
+      - name: Run tests
         run: |
-          clojure -Sdescribe
-          node -v
+          yarn install
+          shadow-cljs compile test
