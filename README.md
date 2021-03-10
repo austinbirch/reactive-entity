@@ -145,13 +145,9 @@ There’s [hardly any code](/src/main/austinbirch/reactive_entity.cljs), so it m
 
 ## What state is this in?
 
-Still a work in progress.
+A work in progress for now. Not in production yet, but very close to being used in production in a couple of complex single-page applications.
 
-As yet there’s no support for creating a reactive entity before the entity exists. This has not been a common need in
-the UI programming I’ve done.
-
-I’ve not written tests for this yet. I’m not sure how best to write tests around Reagent’s `reaction` & `ratom`
-abstractions.
+Has some foundational tests for entities using `:db/id`, lookup-refs, and reverse-ref lookups. Probably could do with some more tests to check that the reactions are being used where possible.
 
 There’s probably a bunch of low-hanging fruit from a performance perspective; I’ve yet to push it too far. I’m happier
 about the developer affordance of being able to use DataScript entities directly in Reagent components at the moment.
