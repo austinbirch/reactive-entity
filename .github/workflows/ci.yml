@@ -42,4 +42,4 @@ jobs:
       - name: Run tests
         run: |
           yarn install
-          shadow-cljs compile test
+          yarn test
