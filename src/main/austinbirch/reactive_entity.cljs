@@ -4,16 +4,6 @@
             [datascript.db]
             [reagent.ratom :as ratom]))
 
-;; TODO: support for entities that don't exist yet?
-;;
-;; - if you use a lookup ref for `[:id "1234"]` that doesn't exist,
-;;   we try to resolve eid (which results in `nil`), then later you
-;;   transact an entity with `:id` = "1234", we should pick up the
-;;   render from there?
-;; - currently resolving at first lookup, and then never resolving
-;;   eids after that - ideally don't want to have to resolve eids on
-;;   each `process-tx-report`?
-
 (def initial-state {:subs {}
                     :reverse-subs {}
                     :db-conn nil})
@@ -151,44 +141,165 @@
               (datascript.db/reverse-ref (first cache-key))))
        set))
 
+(defn lookup-ref?
+  "Returns true if this eid looks like a lookup-ref (e.g. [:entity/id 123])
+
+  #TODO: can check a lot more about lookup-refs here"
+  [eid]
+  (sequential? eid))
+
+(defn make-forward-matchers
+  "Make a map of 'matchers' that we can use on the tx-data in the tx-report.
+
+  forward-matcher = [e a]: #{cache-key, cache-key...}
+    - e = entity id in datascript
+    - a = attribute (no reverse attributes)
+    - cache-key = cache-key that we need to re-read because we've seen tx-data
+                  that might invalidate current state"
+  [{:keys [subs
+           db-before
+           db-after]}]
+  (let [lookup-ref-subs (->> subs
+                             (filter (fn [[cache-key reactive-pair]]
+                                       (let [[e attr] cache-key]
+                                         (lookup-ref? e))))
+                             (into {}))
+        eid-subs (->> subs
+                      (filter (fn [[cache-key reactive-pair]]
+                                (let [[e attr] cache-key]
+                                  (not (lookup-ref? e)))))
+                      (into {}))
+        lookup-ref-matchers (->> lookup-ref-subs
+                                 (reduce (fn [acc [cache-key reactive-pair]]
+                                           (let [[lookup-ref attr] cache-key
+                                                 eid-before (datascript.db/entid db-before lookup-ref)
+                                                 eid-now (datascript.db/entid db-after lookup-ref)]
+                                             (cond-> acc
+                                                     eid-before
+                                                     (update [eid-before attr]
+                                                             (fnil conj #{})
+                                                             cache-key)
+                                                     eid-now
+                                                     (update [eid-now attr]
+                                                             (fnil conj #{})
+                                                             cache-key))))
+                                         {}))
+        matchers (reduce (fn [acc [cache-key reactive-pair]]
+                           (update acc cache-key
+                                   (fnil conj #{})
+                                   cache-key))
+                         lookup-ref-matchers
+                         eid-subs)]
+    matchers))
+
+(defn make-reverse-matchers
+  "Make a map of 'matchers' that we can use on the tx-data in the tx-report.
+
+  reverse-matcher = [a e]: #{cache-key, cache-key...}
+    - a = attribute (the forward version of the reverse attribute)
+    - e = entity id in datascript
+    - cache-key = cache-key that we need to re-read because we've seen tx-data
+                  that might invalidate current state"
+  [{:keys [reverse-subs
+           db-before
+           db-after]}]
+  (let [lookup-ref-subs (->> reverse-subs
+                             (filter (fn [[cache-key reactive-pair]]
+                                       (let [[attr e] cache-key]
+                                         (lookup-ref? e))))
+                             (into {}))
+        eid-subs (->> reverse-subs
+                      (filter (fn [[cache-key reactive-pair]]
+                                (let [[attr e] cache-key]
+                                  (not (lookup-ref? e)))))
+                      (into {}))
+        lookup-ref-matchers (->> lookup-ref-subs
+                                 (reduce (fn [acc [cache-key reactive-pair]]
+                                           (let [[attr lookup-ref] cache-key
+                                                 eid-before (datascript.db/entid db-before lookup-ref)
+                                                 eid-now (datascript.db/entid db-after lookup-ref)]
+                                             (cond-> acc
+                                                     eid-before
+                                                     (update [(datascript.db/reverse-ref attr)
+                                                              eid-before]
+                                                             (fnil conj #{})
+                                                             cache-key)
+                                                     eid-now
+                                                     (update [(datascript.db/reverse-ref attr)
+                                                              eid-now]
+                                                             (fnil conj #{})
+                                                             cache-key))))
+                                         {}))
+        matchers (reduce (fn [acc [cache-key reactive-pair]]
+                           (let [[attr eid] cache-key]
+                             (update acc [(datascript.db/reverse-ref attr)
+                                          eid]
+                                     (fnil conj #{})
+                                     cache-key)))
+                         lookup-ref-matchers
+                         eid-subs)]
+    matchers))
+
 (defn mentioned-eid+attr
   [{:keys [subs
            reverse-subs
-           tx-data]}]
-  (let [forward-refs-for-reverse-subs (reverse-subs->forward-attrs reverse-subs)]
-    (->> tx-data
-         (reduce (fn [acc [e a v tx added?]]
-                   (let [e-a-cache-key [e a]
-                         e-db-id-cache-key [e :db/id]]
-                     (cond
-                       (some? (get subs e-a-cache-key))
-                       (assoc acc {:cache-key e-a-cache-key
-                                   :reverse? false}
-                                  true)
+           tx-report]}]
+  (let [db-before (:db-before tx-report)
+        db-after (:db-after tx-report)
+        tx-data (:tx-data tx-report)]
+    (let [forward-refs-for-reverse-subs (reverse-subs->forward-attrs reverse-subs)
+          forward-matchers (make-forward-matchers {:subs subs
+                                                   :db-before db-before
+                                                   :db-after db-after})
+          reverse-matchers (make-reverse-matchers {:reverse-subs reverse-subs
+                                                   :db-before db-before
+                                                   :db-after db-after})]
+      (->> tx-data
+           (reduce (fn [acc [e a v tx added?]]
+                     (let [forward-match-key [e a]
+                           reverse-match-key (when (contains? forward-refs-for-reverse-subs a)
+                                               [a v])
+                           forward-db-id-match-key [e :db/id]]
+                       (as-> acc acc
+                             ;; match for attribute reads (e.g. [1 :attr/something] or [[:some/id 1] :attr/something])
+                             (if (some? (get forward-matchers forward-match-key))
+                               (let [matched-cache-keys (get forward-matchers forward-match-key)]
+                                 (merge acc (->> matched-cache-keys
+                                                 (map (fn [cache-key]
+                                                        [{:cache-key cache-key
+                                                          :reverse? false}
+                                                         true]))
+                                                 (into {}))))
+                               acc)
 
-                       (some? (get subs e-db-id-cache-key))
-                       (assoc acc {:cache-key e-db-id-cache-key
-                                   :reverse? false}
-                                  true)
+                             ;; match for reverse-ref reads (e.g. [1 :attr/_something] or [[:some/id 1] :attr/_something])
+                             (if (and reverse-match-key
+                                      (some? (get reverse-matchers reverse-match-key)))
+                               (let [matched-cache-keys (get reverse-matchers reverse-match-key)]
+                                 (merge acc (->> matched-cache-keys
+                                                 (map (fn [cache-key]
+                                                        [{:cache-key cache-key
+                                                          :reverse? true}
+                                                         true]))
+                                                 (into {}))))
+                               acc)
 
-                       (and (contains? forward-refs-for-reverse-subs a)
-                            (get reverse-subs [(datascript.db/reverse-ref a) v]))
-                       (assoc acc {:cache-key [(datascript.db/reverse-ref a) v]
-                                   :reverse? true}
-                                  true)
-
-                       :else
-                       acc)))
-                 {})
-         keys
-         set)))
+                             ;; if we have a :db/id for this e then we need to re-read in
+                             ;; case the `exists?` state just changed (added, or deleted)
+                             (if (some? (get forward-matchers forward-db-id-match-key))
+                               (assoc acc {:cache-key forward-db-id-match-key
+                                           :reverse? false}
+                                          true)
+                               acc))))
+                   {})
+           keys
+           set))))
 
 (defn process-tx-report
   [tx-report]
-  (let [tx-data (:tx-data tx-report)
-        mentioned (mentioned-eid+attr {:subs (:subs @state)
+  (let [mentioned (mentioned-eid+attr {:subs (:subs @state)
                                        :reverse-subs (:reverse-subs @state)
-                                       :tx-data tx-data})]
+                                       :tx-report tx-report})]
     (doseq [{:keys [cache-key
                     reverse?]} mentioned]
       (let [cache-bucket (get @state (if reverse?
