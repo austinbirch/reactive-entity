@@ -44,10 +44,10 @@
                              [:db/add 1 :some/attr2 "keep-entity"]])
         <entity (re/entity 1)]
     ;; initial state
-    (is (= (:some/attr <entity) "hello"))
+    (is (= "hello" (:some/attr <entity)))
     ;; update attr
     (d/transact! conn [[:db/add 1 :some/attr "goodbye"]])
-    (is (= (:some/attr <entity "goodbye")))
+    (is (= "goodbye" (:some/attr <entity)))
     ;; remove attr
     (d/transact! conn [[:db.fn/retractAttribute 1 :some/attr]])
     (is (nil? (:some/attr <entity)))
@@ -66,13 +66,13 @@
                         [:db/add 2 :some/attr "hello"]])
         <entity (re/entity 1)]
     ;; initial state
-    (is (= (:entity/child <entity)
-           (re/entity 2)))
+    (is (= (re/entity 2)
+           (:entity/child <entity)))
     ;; replace entity
     (d/transact! conn [[:db/add 1 :entity/child 3]
                        [:db/add 3 :some/attr "hello"]])
-    (is (= (:entity/child <entity)
-           (re/entity 3)))
+    (is (= (re/entity 3)
+           (:entity/child <entity)))
     ;; remove entity
     (d/transact! conn [[:db.fn/retractEntity 3]])
     (is (nil? (:entity/child <entity)))))
@@ -88,21 +88,21 @@
                         [:db/add 3 :some/attr "hello2"]])
         <entity (re/entity 1)]
     ;; initial state
-    (is (= (:entity/children <entity)
-           #{(re/entity 2)
-             (re/entity 3)}))
+    (is (= #{(re/entity 2)
+             (re/entity 3)}
+           (:entity/children <entity)))
     ;; add an entity
     (d/transact! conn [[:db/add 1 :entity/children 4]
                        [:db/add 4 :some/attr "hello3"]])
-    (is (= (:entity/children <entity)
-           #{(re/entity 2)
+    (is (= #{(re/entity 2)
              (re/entity 3)
-             (re/entity 4)}))
+             (re/entity 4)}
+           (:entity/children <entity)))
     ;; remove an entity
     (d/transact! conn [[:db.fn/retractEntity 2]])
-    (is (= (:entity/children <entity)
-           #{(re/entity 3)
-             (re/entity 4)}))))
+    (is (= #{(re/entity 3)
+             (re/entity 4)}
+           (:entity/children <entity)))))
 
 (deftest test-eid-reverse-ref-one
   (let [conn (d/create-conn {:entity/child {:db/valueType :db.type/ref
@@ -186,13 +186,13 @@
                         [:db/add 2 :some/attr "hello"]])
         <entity (re/entity [:entity/id "entity1"])]
     ;; initial state
-    (is (= (:entity/child <entity)
-           (re/entity 2)))
+    (is (= (re/entity 2)
+           (:entity/child <entity)))
     ;; replace entity
     (d/transact! conn [[:db/add 1 :entity/child 3]
                        [:db/add 3 :some/attr "hello"]])
-    (is (= (:entity/child <entity)
-           (re/entity 3)))
+    (is (= (re/entity 3)
+           (:entity/child <entity)))
     ;; remove entity
     (d/transact! conn [[:db.fn/retractEntity 3]])
     (is (nil? (:entity/child <entity)))))
@@ -210,21 +210,21 @@
                         [:db/add 3 :some/attr "hello2"]])
         <entity (re/entity [:entity/id "entity1"])]
     ;; initial state
-    (is (= (:entity/children <entity)
-           #{(re/entity 2)
-             (re/entity 3)}))
+    (is (= #{(re/entity 2)
+             (re/entity 3)}
+           (:entity/children <entity)))
     ;; add an entity
     (d/transact! conn [[:db/add 1 :entity/children 4]
                        [:db/add 4 :some/attr "hello3"]])
-    (is (= (:entity/children <entity)
-           #{(re/entity 2)
+    (is (= #{(re/entity 2)
              (re/entity 3)
-             (re/entity 4)}))
+             (re/entity 4)}
+           (:entity/children <entity)))
     ;; remove an entity
     (d/transact! conn [[:db.fn/retractEntity 2]])
-    (is (= (:entity/children <entity)
-           #{(re/entity 3)
-             (re/entity 4)}))))
+    (is (= #{(re/entity 3)
+             (re/entity 4)}
+           (:entity/children <entity)))))
 
 (deftest test-lookup-ref-reverse-ref-attr-one
   (let [conn (d/create-conn {:entity/id {:db/unique :db.unique/identity}
