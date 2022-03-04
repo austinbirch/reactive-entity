@@ -245,6 +245,31 @@
     ;; add parent back
     (d/transact! conn [[:db/add 1 :some/attr "hello"]
                        [:db/add 1 :entity/child 2]])
-    (is (= #{(re/entity 1)
+    (is (= #{(re/entity 1)}
+           (:entity/_child <entity)))))
 
-             (:entity/_child <entity)}))))
+;; debug helpers
+
+(deftest test-current-state
+  (let [conn (d/create-conn {:entity/id {:db/unique :db.unique/identity}
+                             :entity/child {:db/valueType :db.type/ref
+                                            :db/cardinality :db.cardinality/one}})
+        _ (re/init! conn)
+        _ (d/transact! conn [[:db/add 1 :some/attr "hello"]
+                             [:db/add 1 :entity/child 2]
+                             [:db/add 2 :entity/id "entity2"]
+                             [:db/add 2 :some/attr "goodbye"]])
+        <entity-1 (re/entity 1)
+        <entity-2 (re/entity 2)
+        <entity-3 (re/entity 3)]
+    (is (= {:db/id 1
+            :some/attr "hello"
+            :entity/child {:db/id 2}}
+           (re/current-state <entity-1)))
+    (is (= {:db/id 2
+            :entity/id "entity2"
+            :some/attr "goodbye"}
+           (re/current-state <entity-2)))
+    (is (= {:db/id nil}
+           (re/current-state <entity-3)))))
+
