@@ -2,9 +2,11 @@
   (:refer-clojure :exclude [exists?])
   (:require [datascript.core :as d]
             [datascript.db]
-            [reagent.ratom :as ratom]))
+            [reagent.ratom :as ratom]
+            [clojure.set :as set]))
 
 (def initial-state {:subs {}
+                    :attr-subs {}
                     :reverse-subs {}
                     :db-conn nil})
 
@@ -24,20 +26,44 @@
     (swap! state assoc-in [:subs cache-key] reactive-pair)
     nil))
 
+(defn cache-reactive-attr-pair!
+  [attr reactive-pair]
+  (let [cache-key attr]
+    (ratom/add-on-dispose! (:reaction reactive-pair)
+                           (fn []
+                             (let [existing-reactive-pair (get-in @state [:attr-subs cache-key])
+                                   existing-reaction (:reaction existing-reactive-pair)]
+                               (when (identical? existing-reaction (:reaction reactive-pair))
+                                 (swap! state update :attr-subs
+                                        (fn [cache]
+                                          (dissoc cache cache-key)))))))
+    (swap! state assoc-in [:attr-subs cache-key] reactive-pair)
+    nil))
+
 (defn clear-cache!
   []
-  (let [cache (get @state :subs)]
+  (let [cache (get @state :subs)
+        attr-cache (get @state :attr-subs)]
     (doseq [[cache-key reactive-pair] cache]
+      (when-let [reaction (:reaction reactive-pair)]
+        (ratom/dispose! reaction)))
+    (doseq [[cache-key reactive-pair] attr-cache]
       (when-let [reaction (:reaction reactive-pair)]
         (ratom/dispose! reaction))))
   (when (not-empty (get @state :subs))
-    (js/console.error "subs bucket should be empty after clearing it.")))
+    (js/console.error "subs bucket should be empty after clearing it."))
+  (when (not-empty (get @state :attr-subs))
+    (js/console.error "attr-subs bucket should be empty after clearing it.")))
 
-(declare ->ReactiveEntity equiv-entity reactive-entity-lookup)
+(declare ->ReactiveEntity ->ReactiveUniques equiv-entity equiv-reactive-uniques reactive-entity-lookup reactive-uniques-attr-vs reactive-uniques-lookup)
 
 (defn entity
   [eid]
   (->ReactiveEntity eid))
+
+(defn unique-vs
+  [attr]
+  (->ReactiveUniques attr))
 
 (defn lookup
   [e attr]
@@ -67,6 +93,13 @@
         :else
         v))))
 
+(defn lookup-attr
+  [attr]
+  (when-let [db-conn (:db-conn @state)]
+    (let [db @db-conn]
+      (->> (d/index-range db attr nil nil)
+           (map :v)
+           set))))
 (defn reactive-lookup
   [db e attr]
   (let [eid (::eid e)
@@ -81,6 +114,52 @@
                               {:ratom ratom
                                :reaction reaction})
         @reaction))))
+
+(defn reactive-attr-lookup
+  [db attr]
+  (let [cache-key attr]
+    (if-let [reactive-pair (get-in @state [:attr-subs cache-key])]
+      @(:reaction reactive-pair)
+      (let [initial-v (lookup-attr attr)
+            ratom (ratom/atom initial-v)
+            reaction (ratom/make-reaction #(deref ratom))]
+        (cache-reactive-attr-pair! attr {:ratom ratom
+                                         :reaction reaction})
+        @reaction))))
+
+(deftype ReactiveUniques [attr]
+  Object
+  (toString [this]
+    (.toString (reactive-uniques-attr-vs this)))
+  (equiv [this other]
+    (equiv-reactive-uniques this other))
+
+  IPrintWithWriter
+  (-pr-writer [this writer opts]
+    (-pr-writer (reactive-uniques-attr-vs this) writer opts))
+
+  IIterable
+  (-iterator [this]
+    (-iterator (reactive-uniques-attr-vs this)))
+
+  IEquiv
+  (-equiv [this o] (equiv-reactive-uniques this o))
+
+  ISeqable
+  (-seq [this] (seq (reactive-uniques-attr-vs this)))
+
+  ICounted
+  (-count [this] (count (reactive-uniques-attr-vs this)))
+
+  ILookup
+  (-lookup [coll v] (reactive-uniques-lookup coll v nil))
+  (-lookup [coll v not-found] (reactive-uniques-lookup coll v not-found))
+
+  IFn
+  (-invoke [coll k]
+    (-lookup coll k))
+  (-invoke [coll k not-found]
+    (-lookup coll k not-found)))
 
 (deftype ReactiveEntity [eid]
   IEquiv
@@ -111,6 +190,18 @@
       v
       not-found)))
 
+(defn reactive-uniques-attr-vs
+  [^ReactiveUniques this]
+  (let [db @(:db-conn @state)
+        attr (.-attr this)]
+    (reactive-attr-lookup db attr)))
+
+(defn reactive-uniques-lookup
+  [^ReactiveUniques this v not-found]
+  (if-some [v (get (reactive-uniques-attr-vs this) v)]
+    v
+    not-found))
+
 (defn exists?
   [^ReactiveEntity this]
   (some? (reactive-entity-lookup this :db/id nil)))
@@ -119,6 +210,16 @@
   [^ReactiveEntity this that]
   (and (instance? ReactiveEntity that)
        (= (.-eid this) (.-eid ^ReactiveEntity that))))
+
+(defn equiv-reactive-uniques
+  [^ReactiveUniques this that]
+  (let [db @(:db-conn @state)]
+    (or (and (instance? ReactiveUniques that)
+             (= (.-attr this) (.-attr ^ReactiveUniques that)))
+        (and (satisfies? ISet that)
+             db
+             (= (reactive-attr-lookup db (.-attr this))
+                that)))))
 
 (defn current-state
   "Used for debugging only, non-reactive. Returns a map of the
@@ -239,13 +340,34 @@
               #{}
               tx-data))))
 
+(defn find-attr-cache-keys-needing-re-read
+  [{:keys [attr-subs
+           tx-report]}]
+  (let [tx-data (:tx-data tx-report)
+        attrs-touched (->> tx-data
+                           (map (fn [[e a v t added?]]
+                                  a))
+                           set)
+        attrs-watched (set (keys attr-subs))]
+    (set/intersection attrs-touched
+                      attrs-watched)))
+
 (defn process-tx-report
   [tx-report]
   (let [cache-keys-needing-re-read (find-cache-keys-needing-re-read
                                      {:subs (:subs @state)
                                       :reverse-subs (:reverse-subs @state)
                                       :tx-report tx-report})
-        subs (:subs @state)]
+        attr-cache-keys-needing-re-read (find-attr-cache-keys-needing-re-read
+                                          {:attr-subs (:attr-subs @state)
+                                           :tx-report tx-report})
+        subs (:subs @state)
+        attr-subs (:attr-subs @state)]
+    (doseq [cache-key attr-cache-keys-needing-re-read]
+      (let [ratom (:ratom (get attr-subs cache-key))
+            attr cache-key
+            vs (lookup-attr attr)]
+        (reset! ratom vs)))
     (doseq [cache-key cache-keys-needing-re-read]
       (let [ratom (:ratom (get subs cache-key))
             [e a] cache-key
