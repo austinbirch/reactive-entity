@@ -55,15 +55,21 @@
   (when (not-empty (get @state :attr-subs))
     (js/console.error "attr-subs bucket should be empty after clearing it.")))
 
-(declare ->ReactiveEntity ->ReactiveUniques equiv-entity equiv-reactive-uniques reactive-entity-lookup reactive-uniques-attr-vs reactive-uniques-lookup)
+(declare ->ReactiveEntity
+         ->ReactiveEntitySet
+         equiv-entity
+         equiv-reactive-entityset
+         reactive-entity-lookup
+         reactive-entityset-lookup
+         reactive-entityset-values)
 
 (defn entity
   [eid]
   (->ReactiveEntity eid))
 
-(defn unique-vs
+(defn entities
   [attr]
-  (->ReactiveUniques attr))
+  (->ReactiveEntitySet attr))
 
 (defn lookup
   [e attr]
@@ -93,13 +99,14 @@
         :else
         v))))
 
-(defn lookup-attr
+(defn lookup-entityset
   [attr]
   (when-let [db-conn (:db-conn @state)]
-    (let [db @db-conn]
-      (->> (d/index-range db attr nil nil)
-           (map :v)
-           set))))
+    (->> (d/index-range @db-conn attr nil nil)
+         (map :v)
+         (map #(->ReactiveEntity [attr %]))
+         set)))
+
 (defn reactive-lookup
   [db e attr]
   (let [eid (::eid e)
@@ -115,45 +122,46 @@
                                :reaction reaction})
         @reaction))))
 
-(defn reactive-attr-lookup
+(defn lookup-entityset-and-cache
   [db attr]
   (let [cache-key attr]
     (if-let [reactive-pair (get-in @state [:attr-subs cache-key])]
       @(:reaction reactive-pair)
-      (let [initial-v (lookup-attr attr)
+      (let [initial-v (lookup-entityset attr)
             ratom (ratom/atom initial-v)
             reaction (ratom/make-reaction #(deref ratom))]
         (cache-reactive-attr-pair! attr {:ratom ratom
                                          :reaction reaction})
         @reaction))))
 
-(deftype ReactiveUniques [attr]
+(deftype ReactiveEntitySet [attr]
   Object
   (toString [this]
-    (.toString (reactive-uniques-attr-vs this)))
+    (.toString (reactive-entityset-values this)))
   (equiv [this other]
-    (equiv-reactive-uniques this other))
+    (equiv-reactive-entityset this other))
 
   IPrintWithWriter
   (-pr-writer [this writer opts]
-    (-pr-writer (reactive-uniques-attr-vs this) writer opts))
+    (-pr-writer (reactive-entityset-values this) writer opts))
 
   IIterable
   (-iterator [this]
-    (-iterator (reactive-uniques-attr-vs this)))
+    (-iterator (reactive-entityset-values this)))
 
   IEquiv
-  (-equiv [this o] (equiv-reactive-uniques this o))
+  (-equiv [this o] (equiv-reactive-entityset this o))
 
   ISeqable
-  (-seq [this] (seq (reactive-uniques-attr-vs this)))
+  (-seq [this] (seq (reactive-entityset-values this)))
 
   ICounted
-  (-count [this] (count (reactive-uniques-attr-vs this)))
+  (-count [this] (count (reactive-entityset-values this)))
 
   ILookup
-  (-lookup [coll v] (reactive-uniques-lookup coll v nil))
-  (-lookup [coll v not-found] (reactive-uniques-lookup coll v not-found))
+  (-lookup [this v] (-lookup this v nil))
+  (-lookup [this v not-found]
+    (reactive-entityset-lookup this v not-found))
 
   IFn
   (-invoke [coll k]
@@ -166,12 +174,12 @@
   (-equiv [this o] (equiv-entity this o))
 
   ILookup
-  (-lookup [this attr] (reactive-entity-lookup this attr nil))
+  (-lookup [this attr] (-lookup this attr nil))
   (-lookup [this attr not-found] (reactive-entity-lookup this attr not-found))
 
   IFn
-  (-invoke [this attr] (reactive-entity-lookup this attr nil))
-  (-invoke [this attr not-found] (reactive-entity-lookup this attr not-found))
+  (-invoke [this attr] (-lookup this attr nil))
+  (-invoke [this attr not-found] (-lookup this attr not-found))
 
   IHash
   (-hash [_] (hash eid))
@@ -180,7 +188,7 @@
   (-contains-key?
     [this attr]
     (not= ::not-found
-          (reactive-entity-lookup this attr ::not-found))))
+          (-lookup this attr ::not-found))))
 
 (defn reactive-entity-lookup
   [^ReactiveEntity this attr not-found]
@@ -190,15 +198,15 @@
       v
       not-found)))
 
-(defn reactive-uniques-attr-vs
-  [^ReactiveUniques this]
+(defn reactive-entityset-values
+  [^ReactiveEntitySet this]
   (let [db @(:db-conn @state)
         attr (.-attr this)]
-    (reactive-attr-lookup db attr)))
+    (lookup-entityset-and-cache db attr)))
 
-(defn reactive-uniques-lookup
-  [^ReactiveUniques this v not-found]
-  (if-some [v (get (reactive-uniques-attr-vs this) v)]
+(defn reactive-entityset-lookup
+  [^ReactiveEntitySet this v not-found]
+  (if-some [v (get (reactive-entityset-values this) v)]
     v
     not-found))
 
@@ -211,15 +219,11 @@
   (and (instance? ReactiveEntity that)
        (= (.-eid this) (.-eid ^ReactiveEntity that))))
 
-(defn equiv-reactive-uniques
-  [^ReactiveUniques this that]
+(defn equiv-reactive-entityset
+  [^ReactiveEntitySet this that]
   (let [db @(:db-conn @state)]
-    (or (and (instance? ReactiveUniques that)
-             (= (.-attr this) (.-attr ^ReactiveUniques that)))
-        (and (satisfies? ISet that)
-             db
-             (= (reactive-attr-lookup db (.-attr this))
-                that)))))
+    (and (instance? ReactiveEntitySet that)
+         (= (.-attr this) (.-attr ^ReactiveEntitySet that)))))
 
 (defn current-state
   "Used for debugging only, non-reactive. Returns a map of the
@@ -366,7 +370,7 @@
     (doseq [cache-key attr-cache-keys-needing-re-read]
       (let [ratom (:ratom (get attr-subs cache-key))
             attr cache-key
-            vs (lookup-attr attr)]
+            vs (lookup-entityset attr)]
         (reset! ratom vs)))
     (doseq [cache-key cache-keys-needing-re-read]
       (let [ratom (:ratom (get subs cache-key))
