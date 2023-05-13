@@ -37,6 +37,11 @@
 
 (defn entities
   [attr]
+  (let [db-conn (:db-conn @state)
+        db @db-conn]
+    (when-not (datascript.db/is-attr? db attr :db.unique/identity)
+      (throw (ex-info "attr for entities lookup must be marked :db.unique/identity"
+                      {:attr attr}))))
   (->ReactiveEntitySet attr))
 
 (defn lookup
