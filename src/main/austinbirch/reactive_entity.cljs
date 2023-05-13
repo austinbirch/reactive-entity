@@ -25,6 +25,7 @@
 
 (declare ->ReactiveEntity
          ->ReactiveEntitySet
+         snapshot-entity-as-map
          equiv-entity
          equiv-entityset
          reactive-entity-lookup
@@ -185,6 +186,10 @@
     (-lookup coll k not-found)))
 
 (deftype ReactiveEntity [eid]
+  IPrintWithWriter
+  (-pr-writer [this writer opts]
+    (-pr-writer (snapshot-entity-as-map this) writer opts))
+
   IEquiv
   (-equiv [this o] (equiv-entity this o))
 
@@ -204,6 +209,24 @@
     [this attr]
     (not= ::not-found
           (-lookup this attr ::not-found))))
+
+(defn snapshot-entity-as-map
+  [^ReactiveEntity entity]
+  (let [db @(:db-conn @state)
+        ds-entity (d/entity db (.-eid entity))]
+    (->> (seq ds-entity)
+         (reduce (fn [acc [attr v]]
+                   (assoc acc
+                     attr (if (datascript.db/ref? db attr)
+                            (if (set? v)
+                              (->> v
+                                   (map (fn [e]
+                                          {:db/id (:db/id e)}))
+                                   set)
+                              {:db/id (:db/id v)})
+                            v)))
+                 {})
+         (merge {:db/id (:db/id entity)}))))
 
 (defn reactive-entity-lookup
   [^ReactiveEntity this attr not-found]
@@ -252,21 +275,7 @@
   (if-not (instance? ReactiveEntity entity)
     (throw (ex-info "Can only call `current-state` on a ReactiveEntity"
                     {:entity entity}))
-    (let [db @(:db-conn @state)
-          ds-entity (d/entity db (.-eid entity))]
-      (->> (seq ds-entity)
-           (reduce (fn [acc [attr v]]
-                     (assoc acc
-                       attr (if (datascript.db/ref? db attr)
-                              (if (set? v)
-                                (->> v
-                                     (map (fn [e]
-                                            {:db/id (:db/id e)}))
-                                     set)
-                                {:db/id (:db/id v)})
-                              v)))
-                   {})
-           (merge {:db/id (:db/id entity)})))))
+    (snapshot-entity-as-map entity)))
 
 (defn lookup-ref?
   "Returns true if this eid looks like a lookup-ref (e.g. [:entity/id 123])
