@@ -6,54 +6,22 @@
             [clojure.set :as set]))
 
 (def initial-state {:subs {}
-                    :attr-subs {}
-                    :reverse-subs {}
                     :db-conn nil})
 
 (defonce state (atom initial-state))
 
-(defn cache-reactive-pair!
-  [eid attr reactive-pair]
-  (let [cache-key [eid attr]]
-    (ratom/add-on-dispose! (:reaction reactive-pair)
-                           (fn []
-                             (let [existing-reactive-pair (get-in @state [:subs cache-key])
-                                   existing-reaction (:reaction existing-reactive-pair)]
-                               (when (identical? existing-reaction (:reaction reactive-pair))
-                                 (swap! state update :subs
-                                        (fn [cache]
-                                          (dissoc cache cache-key)))))))
-    (swap! state assoc-in [:subs cache-key] reactive-pair)
-    nil))
-
-(defn cache-reactive-attr-pair!
-  [attr reactive-pair]
-  (let [cache-key attr]
-    (ratom/add-on-dispose! (:reaction reactive-pair)
-                           (fn []
-                             (let [existing-reactive-pair (get-in @state [:attr-subs cache-key])
-                                   existing-reaction (:reaction existing-reactive-pair)]
-                               (when (identical? existing-reaction (:reaction reactive-pair))
-                                 (swap! state update :attr-subs
-                                        (fn [cache]
-                                          (dissoc cache cache-key)))))))
-    (swap! state assoc-in [:attr-subs cache-key] reactive-pair)
-    nil))
+(defn filter-keys
+  [pred m]
+  (select-keys m (filter pred (keys m))))
 
 (defn clear-cache!
   []
-  (let [cache (get @state :subs)
-        attr-cache (get @state :attr-subs)]
+  (let [cache (get @state :subs)]
     (doseq [[cache-key reactive-pair] cache]
-      (when-let [reaction (:reaction reactive-pair)]
-        (ratom/dispose! reaction)))
-    (doseq [[cache-key reactive-pair] attr-cache]
       (when-let [reaction (:reaction reactive-pair)]
         (ratom/dispose! reaction))))
   (when (not-empty (get @state :subs))
-    (js/console.error "subs bucket should be empty after clearing it."))
-  (when (not-empty (get @state :attr-subs))
-    (js/console.error "attr-subs bucket should be empty after clearing it.")))
+    (js/console.error "subs bucket should be empty after clearing it.")))
 
 (declare ->ReactiveEntity
          ->ReactiveEntitySet
@@ -107,32 +75,74 @@
          (map #(->ReactiveEntity [attr %]))
          set)))
 
+(defn cache-reactive-pair!
+  [cache-key reactive-pair]
+  (ratom/add-on-dispose! (:reaction reactive-pair)
+                         (fn []
+                           (let [existing-reactive-pair (get-in @state [:subs cache-key])
+                                 existing-reaction (:reaction existing-reactive-pair)]
+                             (when (identical? existing-reaction (:reaction reactive-pair))
+                               (swap! state update :subs
+                                      (fn [cache]
+                                        (dissoc cache cache-key)))))))
+  (swap! state assoc-in [:subs cache-key] reactive-pair)
+  nil)
+
+(defn ensure-cached-and-deref!
+  [{:keys [cache-key
+           initial-v-fn]}]
+  (if-let [reactive-pair (get-in @state [:subs cache-key])]
+    @(:reaction reactive-pair)
+    (let [initial-v (initial-v-fn)
+          ratom (ratom/atom initial-v)
+          reaction (ratom/make-reaction #(deref ratom))]
+      (cache-reactive-pair! cache-key
+                            {:ratom ratom
+                             :reaction reaction})
+      @reaction)))
+
+(defn entity-cache-key
+  [e attr]
+  [::cache-key-entity e attr])
+
+(defn entityset-cache-key
+  [attr]
+  [::cache-key-entityset attr])
+
+(defn is-entity-cache-key?
+  [cache-key]
+  (= (first cache-key) ::cache-key-entity))
+
+(defn is-entityset-cache-key?
+  [cache-key]
+  (= (first cache-key) ::cache-key-entityset))
+
+(defn ea-for-entity-cache-key
+  [cache-key]
+  {:pre [(is-entity-cache-key? cache-key)]}
+  (let [[_ e a] cache-key]
+    [e a]))
+
+(defn a-for-entityset-cache-key
+  [cache-key]
+  {:pre [(is-entityset-cache-key? cache-key)]}
+  (let [[_ a] cache-key]
+    a))
+
 (defn reactive-lookup
   [db e attr]
   (let [eid (::eid e)
-        cache-key [eid attr]]
-    (if-let [reactive-pair (get-in @state [:subs cache-key])]
-      @(:reaction reactive-pair)
-      (let [initial-v (lookup e attr)
-            ratom (ratom/atom initial-v)
-            reaction (ratom/make-reaction #(deref ratom))]
-        (cache-reactive-pair! eid
-                              attr
-                              {:ratom ratom
-                               :reaction reaction})
-        @reaction))))
+        cache-key (entity-cache-key e attr)
+        initial-v-fn #(lookup e attr)]
+    (ensure-cached-and-deref! {:cache-key cache-key
+                               :initial-v-fn initial-v-fn})))
 
 (defn lookup-entityset-and-cache
   [db attr]
-  (let [cache-key attr]
-    (if-let [reactive-pair (get-in @state [:attr-subs cache-key])]
-      @(:reaction reactive-pair)
-      (let [initial-v (lookup-entityset attr)
-            ratom (ratom/atom initial-v)
-            reaction (ratom/make-reaction #(deref ratom))]
-        (cache-reactive-attr-pair! attr {:ratom ratom
-                                         :reaction reaction})
-        @reaction))))
+  (let [cache-key (entityset-cache-key attr)
+        initial-v-fn #(lookup-entityset attr)]
+    (ensure-cached-and-deref! {:cache-key cache-key
+                               :initial-v-fn initial-v-fn})))
 
 (deftype ReactiveEntitySet [attr]
   Object
@@ -265,7 +275,7 @@
            db-before
            db-after]}]
   (reduce (fn [acc [cache-key reactive-pair]]
-            (let [[eid attr] cache-key
+            (let [[eid attr] (ea-for-entity-cache-key cache-key)
                   is-reverse? (datascript.db/reverse-ref? attr)
                   forward-attr (if is-reverse?
                                  (datascript.db/reverse-ref attr)
@@ -301,7 +311,7 @@
           {}
           subs))
 
-(defn find-cache-keys-needing-re-read
+(defn find-entity-cache-keys-needing-re-read
   [{:keys [subs
            tx-report]}]
   (let [db-before (:db-before tx-report)
@@ -344,38 +354,43 @@
               #{}
               tx-data))))
 
-(defn find-attr-cache-keys-needing-re-read
-  [{:keys [attr-subs
+(defn find-entityset-cache-keys-needing-re-read
+  [{:keys [subs
            tx-report]}]
   (let [tx-data (:tx-data tx-report)
         attrs-touched (->> tx-data
                            (map (fn [[e a v t added?]]
                                   a))
                            set)
-        attrs-watched (set (keys attr-subs))]
-    (set/intersection attrs-touched
-                      attrs-watched)))
+        attrs-watched (->> (keys subs)
+                           (map second)
+                           set)]
+    (->> (set/intersection attrs-touched
+                           attrs-watched)
+         (map (fn [attr]
+                (entityset-cache-key attr)))
+         set)))
 
 (defn process-tx-report
   [tx-report]
-  (let [cache-keys-needing-re-read (find-cache-keys-needing-re-read
-                                     {:subs (:subs @state)
-                                      :reverse-subs (:reverse-subs @state)
-                                      :tx-report tx-report})
-        attr-cache-keys-needing-re-read (find-attr-cache-keys-needing-re-read
-                                          {:attr-subs (:attr-subs @state)
-                                           :tx-report tx-report})
-        subs (:subs @state)
-        attr-subs (:attr-subs @state)]
-    (doseq [cache-key attr-cache-keys-needing-re-read]
-      (let [ratom (:ratom (get attr-subs cache-key))
-            attr cache-key
-            vs (lookup-entityset attr)]
-        (reset! ratom vs)))
+  (let [subs (:subs @state)
+        entity-subs (filter-keys is-entity-cache-key? subs)
+        entityset-subs (filter-keys is-entityset-cache-key? subs)
+        entity-cache-keys-needing-re-read (find-entity-cache-keys-needing-re-read
+                                            {:subs entity-subs
+                                             :tx-report tx-report})
+        entityset-cache-keys-needing-re-read (find-entityset-cache-keys-needing-re-read
+                                               {:subs entityset-subs
+                                                :tx-report tx-report})
+        cache-keys-needing-re-read (set/union (set entity-cache-keys-needing-re-read)
+                                              entityset-cache-keys-needing-re-read)]
     (doseq [cache-key cache-keys-needing-re-read]
       (let [ratom (:ratom (get subs cache-key))
-            [e a] cache-key
-            v (lookup {::eid e} a)]
+            v (if (is-entityset-cache-key? cache-key)
+                (let [attr (a-for-entityset-cache-key cache-key)]
+                  (lookup-entityset attr))
+                (let [[e a] (ea-for-entity-cache-key cache-key)]
+                  (lookup {::eid e} a)))]
         (reset! ratom v)))))
 
 (defn listen!
