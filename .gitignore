@@ -18,3 +18,5 @@
 /resources/demo/public/js
 /resources/test/public/js
 pom.xml
+.clj-kondo
+.lsp
