@@ -425,7 +425,8 @@
   ;;
   ;; - create a db, then call `init!` passing the connection
   (let [db-conn (d/create-conn {:app.todo/id {:db/unique :db.unique/identity}})]
-    (d/transact! [{:app.todo/id 1
+    (d/transact! db-conn
+                 [{:app.todo/id 1
                    :app.todo/date "2021-03-01"}
                   {:app.todo/id 2
                    :app.todo/date "2021-07-01"}]))
@@ -462,7 +463,7 @@
   ;; - when any other value changes for the todo, none
   ;;   of the components re-render
 
-  (def todo-date
+  (defn todo-date
     [{:keys [<todo]}]
     [:div [:span "Date: " (:app.todo/date <todo)]])
 
