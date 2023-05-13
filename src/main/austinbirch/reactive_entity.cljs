@@ -138,7 +138,7 @@
 (defn reactive-lookup
   [db e attr]
   (let [eid (::eid e)
-        cache-key (entity-cache-key e attr)
+        cache-key (entity-cache-key eid attr)
         initial-v-fn #(lookup e attr)]
     (ensure-cached-and-deref! {:cache-key cache-key
                                :initial-v-fn initial-v-fn})))
