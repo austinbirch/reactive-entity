@@ -26,7 +26,7 @@
 (declare ->ReactiveEntity
          ->ReactiveEntitySet
          equiv-entity
-         equiv-reactive-entityset
+         equiv-entityset
          reactive-entity-lookup
          reactive-entityset-lookup
          reactive-entityset-values)
@@ -154,7 +154,7 @@
   (toString [this]
     (.toString (reactive-entityset-values this)))
   (equiv [this other]
-    (equiv-reactive-entityset this other))
+    (equiv-entityset this other))
 
   IPrintWithWriter
   (-pr-writer [this writer opts]
@@ -165,7 +165,7 @@
     (-iterator (reactive-entityset-values this)))
 
   IEquiv
-  (-equiv [this o] (equiv-reactive-entityset this o))
+  (-equiv [this o] (equiv-entityset this o))
 
   ISeqable
   (-seq [this] (seq (reactive-entityset-values this)))
@@ -234,7 +234,7 @@
   (and (instance? ReactiveEntity that)
        (= (.-eid this) (.-eid ^ReactiveEntity that))))
 
-(defn equiv-reactive-entityset
+(defn equiv-entityset
   [^ReactiveEntitySet this that]
   (let [db @(:db-conn @state)]
     (and (instance? ReactiveEntitySet that)
