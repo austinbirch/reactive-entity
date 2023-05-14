@@ -35,9 +35,10 @@ _Sorry about this stream-of-consciousness README, I might tidy it up later if th
 
 (defn counter-demo
   []
-  (let [<session (re/entity 1) ;; make reactive entity
-        counter (:counter <session) ;; read `:counter` from reactive entity
-        ]
+  (let [;; make reactive entity
+        <session (re/entity 1)
+        ;; read `:counter` from reactive entity
+        counter (:counter <session)]
     [:div
      [:div
       [:span "Counter: " (str counter)]]
@@ -190,9 +191,10 @@ about the developer affordance of being able to use DataScript entities directly
     
     (defn counter-demo
       []
-      (let [<session (re/entity 1) ;; make reactive entity
-            counter (:counter <session) ;; read `:counter` from reactive entity
-            ]
+      (let [;; make reactive entity
+            <session (re/entity 1)
+            ;; read `:counter` from reactive entity
+            counter (:counter <session)]
         [:div
          [:div
           [:span "Counter: " (str counter)]]
@@ -250,16 +252,15 @@ about the developer affordance of being able to use DataScript entities directly
     
     (defn multiple-counters-demo
       []
-      (let [<session (re/entity 1) ;; make reactive entity
-            counters (:session/counters <session) ;; read all counters from session as reactive entities
-            ]
+      (let [;; read all counters as reactive entities
+            <counters (re/entities :counter/id)]
         [:div
          (doall
            (map (fn [<counter]
                   [:div {:key (:counter/id <counter)}
-                   [counter-view {:<counter <counter} ;; pass reactive entity as props
-                    ]])
-                counters))]))
+                   ;; pass reactive entity as props
+                   [counter-view {:<counter <counter}]])
+                 <counters))]))
     
     (defn ^:dev/after-load mount-root
       []
@@ -304,8 +305,7 @@ about the developer affordance of being able to use DataScript entities directly
     (rf/reg-sub
       :todos
       (fn []
-        (let [<session (re/entity 1)]
-          (:session/todos <session))))
+        (re/entities :todo/id)))
     
     (rf/reg-sub
       :complete-todos
