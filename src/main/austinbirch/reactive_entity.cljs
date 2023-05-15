@@ -25,3 +25,7 @@
 (defn snapshot-entity-as-map
   [entity]
   (impl/snapshot-entity-as-map entity))
+
+(defn clear-cache!
+  []
+  (impl/clear-cache!))
