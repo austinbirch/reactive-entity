@@ -96,7 +96,7 @@ attributes where we also have a component using that data.
 6. When all the components that depend on a a reaction from 2. are unmounted, we dispose of the reaction and no longer
    need to check that entity+attribute pair on further `tx-report`s.
 
-There’s [hardly any code](/src/main/austinbirch/reactive_entity.cljs), so it might actually be easier to just read that.
+There’s [hardly any code](/src/main/austinbirch/reactive_entity/impl.cljs), so it might actually be easier to just read that.
 
 ## Things to note
 

@@ -1,6 +1,6 @@
 (ns austinbirch.reactive-entity.multiple-counters-demo
   (:require [datascript.core :as d]
-            [austinbirch.reactive-entity :as re]))
+            [austinbirch.reactive-entity.impl :as re]))
 
 (defonce db-conn
          (let [conn (d/create-conn {:session/counters {:db/valueType :db.type/ref

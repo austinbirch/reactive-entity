@@ -1,4 +1,4 @@
-(ns austinbirch.reactive-entity
+(ns austinbirch.reactive-entity.impl
   (:refer-clojure :exclude [exists?])
   (:require [datascript.core :as d]
             [datascript.db]

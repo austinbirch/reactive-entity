@@ -1,6 +1,6 @@
-(ns austinbirch.reactive-entity-test
+(ns austinbirch.reactive-entity.impl-test
   (:require [cljs.test :refer [deftest is]]
-            [austinbirch.reactive-entity :as re]
+            [austinbirch.reactive-entity.impl :as re]
             [datascript.core :as d]
             [reagent.core]))
 
