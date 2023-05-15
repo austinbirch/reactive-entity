@@ -211,22 +211,32 @@
           (-lookup this attr ::not-found))))
 
 (defn snapshot-entity-as-map
+  "Used for debugging only, non-reactive. Returns a map of the
+  existing state of the reactive entity - kind of like what you
+  would get if you called d/touch on a DataScript entity.
+
+  Useful for logging out the state of a reactive entity during
+  a render pass, without having to subscribe to all changes on
+  the entity."
   [^ReactiveEntity entity]
-  (let [db @(:db-conn @state)
-        ds-entity (d/entity db (.-eid entity))]
-    (->> (seq ds-entity)
-         (reduce (fn [acc [attr v]]
-                   (assoc acc
-                     attr (if (datascript.db/ref? db attr)
-                            (if (set? v)
-                              (->> v
-                                   (map (fn [e]
-                                          {:db/id (:db/id e)}))
-                                   set)
-                              {:db/id (:db/id v)})
-                            v)))
-                 {})
-         (merge {:db/id (:db/id entity)}))))
+  (if-not (instance? ReactiveEntity entity)
+    (throw (ex-info "Can only call `snapshot-entity-as-map` on a ReactiveEntity"
+                    {:entity entity}))
+    (let [db @(:db-conn @state)
+          ds-entity (d/entity db (.-eid entity))]
+      (->> (seq ds-entity)
+           (reduce (fn [acc [attr v]]
+                     (assoc acc
+                       attr (if (datascript.db/ref? db attr)
+                              (if (set? v)
+                                (->> v
+                                     (map (fn [e]
+                                            {:db/id (:db/id e)}))
+                                     set)
+                                {:db/id (:db/id v)})
+                              v)))
+                   {})
+           (merge {:db/id (:db/id entity)})))))
 
 (defn reactive-entity-lookup
   [^ReactiveEntity this attr not-found]
@@ -262,20 +272,6 @@
   (let [db @(:db-conn @state)]
     (and (instance? ReactiveEntitySet that)
          (= (.-attr this) (.-attr ^ReactiveEntitySet that)))))
-
-(defn current-state
-  "Used for debugging only, non-reactive. Returns a map of the
-  existing state of the reactive entity - kind of like what you
-  would get if you called d/touch on a DataScript entity.
-
-  Useful for logging out the state of a reactive entity during
-  a render pass, without having to subscribe to all changes on
-  the entity."
-  [^ReactiveEntity entity]
-  (if-not (instance? ReactiveEntity entity)
-    (throw (ex-info "Can only call `current-state` on a ReactiveEntity"
-                    {:entity entity}))
-    (snapshot-entity-as-map entity)))
 
 (defn lookup-ref?
   "Returns true if this eid looks like a lookup-ref (e.g. [:entity/id 123])

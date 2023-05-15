@@ -1,6 +1,6 @@
-(ns austinbirch.reactive-entity.impl-test
+(ns austinbirch.reactive-entity-test
   (:require [cljs.test :refer [deftest is]]
-            [austinbirch.reactive-entity.impl :as re]
+            [austinbirch.reactive-entity :as re]
             [datascript.core :as d]
             [reagent.core]))
 
@@ -261,7 +261,7 @@
                               :person/name "Someone Else"}])
         <entities (re/entities :person/id)]
     (is (true? (every? (fn [<entity]
-                         (instance? re/ReactiveEntity <entity))
+                         (re/is-reactive-entity? <entity))
                        <entities)))))
 
 (deftest test-entityset-reactive
@@ -310,7 +310,7 @@
 
 ;; debug helpers
 
-(deftest test-current-state
+(deftest test-snapshot-entity-as-map
   (let [conn (d/create-conn {:entity/id {:db/unique :db.unique/identity}
                              :entity/child {:db/valueType :db.type/ref
                                             :db/cardinality :db.cardinality/one}})
@@ -325,11 +325,11 @@
     (is (= {:db/id 1
             :some/attr "hello"
             :entity/child {:db/id 2}}
-           (re/current-state <entity-1)))
+           (re/snapshot-entity-as-map <entity-1)))
     (is (= {:db/id 2
             :entity/id "entity2"
             :some/attr "goodbye"}
-           (re/current-state <entity-2)))
+           (re/snapshot-entity-as-map <entity-2)))
     (is (= {:db/id nil}
-           (re/current-state <entity-3)))))
+           (re/snapshot-entity-as-map <entity-3)))))
 
