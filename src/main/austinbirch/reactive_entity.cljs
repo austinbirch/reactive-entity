@@ -43,7 +43,7 @@
 (defn exists?
   "Returns true if the entity exists in the DataScript database.
 
-  Useful in order to to support creating reactive entities _before_
+  Useful in order to support creating reactive entities _before_
   the entities actually exist in the DataScript database - once
   they get added the component will re-render with the data."
   [entity]

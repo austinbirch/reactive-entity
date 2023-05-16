@@ -51,7 +51,6 @@
     (let [db @db-conn
           eid (::eid e)
           v (get (d/entity db eid) attr)]
-
       (cond
         ;; db/id requires us to check index to actually find out if the entity really exists
         (= attr :db/id)
@@ -136,7 +135,7 @@
     a))
 
 (defn reactive-lookup
-  [db e attr]
+  [e attr]
   (let [eid (::eid e)
         cache-key (entity-cache-key eid attr)
         initial-v-fn #(lookup e attr)]
@@ -144,7 +143,7 @@
                                :initial-v-fn initial-v-fn})))
 
 (defn lookup-entityset-and-cache
-  [db attr]
+  [attr]
   (let [cache-key (entityset-cache-key attr)
         initial-v-fn #(lookup-entityset attr)]
     (ensure-cached-and-deref! {:cache-key cache-key
@@ -233,17 +232,15 @@
 
 (defn reactive-entity-lookup
   [^ReactiveEntity this attr not-found]
-  (let [db @(:db-conn @state)
-        eid (.-eid this)]
-    (if-some [v (reactive-lookup db {::eid eid} attr)]
+  (let [eid (.-eid this)]
+    (if-some [v (reactive-lookup {::eid eid} attr)]
       v
       not-found)))
 
 (defn reactive-entityset-values
   [^ReactiveEntitySet this]
-  (let [db @(:db-conn @state)
-        attr (.-attr this)]
-    (lookup-entityset-and-cache db attr)))
+  (let [attr (.-attr this)]
+    (lookup-entityset-and-cache attr)))
 
 (defn reactive-entityset-lookup
   [^ReactiveEntitySet this v not-found]
