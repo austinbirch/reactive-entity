@@ -248,9 +248,69 @@
     (is (= #{(re/entity 1)}
            (:entity/_child <entity)))))
 
+;; entitysets
+;; ==========================
+
+(deftest test-entityset-returns-reactive-entities
+  (let [conn (d/create-conn {:person/id {:db/unique :db.unique/identity}
+                             :something-else/id {:db/unique :db.unique/identity}})
+        _ (re/init! conn)
+        _ (d/transact! conn [{:person/id "1"
+                              :person/name "Austin"}
+                             {:person/id "2"
+                              :person/name "Someone Else"}])
+        <entities (re/entities :person/id)]
+    (is (true? (every? (fn [<entity]
+                         (re/is-reactive-entity? <entity))
+                       <entities)))))
+
+(deftest test-entityset-reactive
+  (let [conn (d/create-conn {:person/id {:db/unique :db.unique/identity}
+                             :something-else/id {:db/unique :db.unique/identity}})
+        _ (re/init! conn)
+        <entities (re/entities :person/id)]
+    ;; should have found 0 entities so far
+    (is (zero? (count <entities)))
+    ;; add an entity
+    (d/transact! conn [{:person/id "1"
+                        :person/name "Austin"}
+                       {:something-else/id "x"
+                        :something-else/description "description"}])
+    (is (= 1 (count <entities)))
+    (is (= #{"1"} (set (map :person/id <entities))))
+    ;; add another entity (total 2)
+    (d/transact! conn [{:person/id "2"
+                        :person/name "Someone Else"}])
+    (is (= 2 (count <entities)))
+    (is (= #{"1" "2"} (set (map :person/id <entities))))
+    ;; remove an entity (total 1)
+    (d/transact! conn [[:db.fn/retractEntity [:person/id "2"]]])
+    (is (= 1 (count <entities)))
+    (is (= #{"1"} (set (map :person/id <entities))))
+    ;; remove the last entity
+    (d/transact! conn [[:db.fn/retractEntity [:person/id "1"]]])
+    (is (zero? (count <entities)))))
+
+(deftest test-entityset-requires-identity-attr
+  (let [conn (d/create-conn {:person/id {:db/unique :db.unique/identity}})
+        _ (re/init! conn)]
+    (is (thrown? js/Error (re/entities :some-attr)))))
+
+(deftest test-entityset-equality
+  (let [conn (d/create-conn {:person/id {:db/unique :db.unique/identity}
+                             :something-else/id {:db/unique :db.unique/identity}})
+        _ (re/init! conn)
+        _ (d/transact! conn [{:person/id "1"
+                              :person/name "Austin"}
+                             {:person/id "2"
+                              :person/name "Someone Else"}])
+        <entities-one (re/entities :person/id)
+        <entities-two (re/entities :person/id)]
+    (is (= <entities-one <entities-two))))
+
 ;; debug helpers
 
-(deftest test-current-state
+(deftest test-snapshot-entity-as-map
   (let [conn (d/create-conn {:entity/id {:db/unique :db.unique/identity}
                              :entity/child {:db/valueType :db.type/ref
                                             :db/cardinality :db.cardinality/one}})
@@ -265,11 +325,11 @@
     (is (= {:db/id 1
             :some/attr "hello"
             :entity/child {:db/id 2}}
-           (re/current-state <entity-1)))
+           (re/snapshot-entity-as-map <entity-1)))
     (is (= {:db/id 2
             :entity/id "entity2"
             :some/attr "goodbye"}
-           (re/current-state <entity-2)))
+           (re/snapshot-entity-as-map <entity-2)))
     (is (= {:db/id nil}
-           (re/current-state <entity-3)))))
+           (re/snapshot-entity-as-map <entity-3)))))
 
