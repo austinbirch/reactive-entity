@@ -1,7 +1,7 @@
 (ns austinbirch.reactive-entity.demo
   (:require [reagent.core :as r]
             [reagent.dom]
-            [austinbirch.reactive-entity.impl :as re]
+            [austinbirch.reactive-entity :as re]
             [datascript.core :as d]
             [re-frame.core :as rf]))
 

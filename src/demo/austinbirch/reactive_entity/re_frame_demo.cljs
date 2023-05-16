@@ -1,7 +1,7 @@
 (ns austinbirch.reactive-entity.re-frame-demo
   (:require [datascript.core :as d]
             [re-frame.core :as rf]
-            [austinbirch.reactive-entity.impl :as re]))
+            [austinbirch.reactive-entity :as re]))
 
 (defonce db-conn
   (let [conn (d/create-conn {:session/todos {:db/valueType :db.type/ref
