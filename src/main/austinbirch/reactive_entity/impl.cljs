@@ -211,13 +211,6 @@
           (-lookup this attr ::not-found))))
 
 (defn snapshot-entity-as-map
-  "Used for debugging only, non-reactive. Returns a map of the
-  existing state of the reactive entity - kind of like what you
-  would get if you called d/touch on a DataScript entity.
-
-  Useful for logging out the state of a reactive entity during
-  a render pass, without having to subscribe to all changes on
-  the entity."
   [^ReactiveEntity entity]
   (if-not (instance? ReactiveEntity entity)
     (throw (ex-info "Can only call `snapshot-entity-as-map` on a ReactiveEntity"
