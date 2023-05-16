@@ -423,7 +423,8 @@
   (let [db-conn (d/create-conn {:app.todo/id {:db/unique :db.unique/identity}})]
     (d/transact! db-conn
                  [{:app.todo/id 1
-                   :app.todo/date "2021-03-01"}
+                   :app.todo/date "2021-03-01"
+                   :app.todo/message "hello"}
                   {:app.todo/id 2
                    :app.todo/date "2021-07-01"}]))
 
