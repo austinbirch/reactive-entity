@@ -5,7 +5,7 @@
     "shadow-cljs": "2.11.15"
   },
   "scripts": {
-    "test": "shadow-cljs -A:test compile test"
+    "test": "clj -T:build test"
   },
   "name": "reactive-entity",
   "version": "1.0.0",
