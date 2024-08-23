@@ -211,24 +211,24 @@
 
 (defn snapshot-entity-as-map
   [^ReactiveEntity entity]
-  (if-not (instance? ReactiveEntity entity)
-    (throw (ex-info "Can only call `snapshot-entity-as-map` on a ReactiveEntity"
-                    {:entity entity}))
-    (let [db @(:db-conn @state)
-          ds-entity (d/entity db (.-eid entity))]
-      (->> (seq ds-entity)
-           (reduce (fn [acc [attr v]]
-                     (assoc acc
-                       attr (if (datascript.db/ref? db attr)
-                              (if (set? v)
-                                (->> v
-                                     (map (fn [e]
-                                            {:db/id (:db/id e)}))
-                                     set)
-                                {:db/id (:db/id v)})
-                              v)))
-                   {})
-           (merge {:db/id (:db/id entity)})))))
+  (cond
+    (nil? entity) nil
+    (not (instance? ReactiveEntity entity)) (throw (ex-info "Can only call `snapshot-entity-as-map` on a ReactiveEntity" {:entity entity}))
+    :else (let [db @(:db-conn @state)
+                ds-entity (d/entity db (.-eid entity))]
+            (->> (seq ds-entity)
+                 (reduce (fn [acc [attr v]]
+                           (assoc acc
+                             attr (if (datascript.db/ref? db attr)
+                                    (if (set? v)
+                                      (->> v
+                                           (map (fn [e]
+                                                  {:db/id (:db/id e)}))
+                                           set)
+                                      {:db/id (:db/id v)})
+                                    v)))
+                         {})
+                 (merge {:db/id (:db/id entity)})))))
 
 (defn reactive-entity-lookup
   [^ReactiveEntity this attr not-found]

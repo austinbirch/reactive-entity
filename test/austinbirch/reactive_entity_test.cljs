@@ -331,5 +331,6 @@
             :some/attr "goodbye"}
            (re/snapshot-entity-as-map <entity-2)))
     (is (= {:db/id nil}
-           (re/snapshot-entity-as-map <entity-3)))))
+           (re/snapshot-entity-as-map <entity-3)))
+    (is (nil? (re/snapshot-entity-as-map nil)))))
 
