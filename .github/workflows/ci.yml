@@ -22,7 +22,7 @@ jobs:
       - name: Install clojure tools-deps
         uses: DeLaGuardo/setup-clojure@master
         with:
-          cli: 1.10.1.693
+          cli: 1.11.4.1474
           
       - uses: actions/setup-node@v2
         with:
