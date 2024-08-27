@@ -24,7 +24,9 @@
                {:basis basis
                 :main 'clojure.main
                 :main-args ["-m" "shadow.cljs.devtools.cli" "compile" "test"]})
-        {:keys [exit]} (b/process cmds)]
+        {:keys [exit]} (b/process cmds)
+        _ (when-not (zero? exit) (throw (ex-info "Failed to build tests" {})))
+        {:keys [exit]} (b/process {:command-args ["node" "out/node-tests.js"]})]
     (when-not (zero? exit) (throw (ex-info "Tests failed" {}))))
   opts)
 

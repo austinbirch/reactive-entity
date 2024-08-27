@@ -4,6 +4,12 @@
   {:id :test
    :target :node-test
    :output-to "out/node-tests.js"
+   :ns-regexp "-test$"}
+
+  :test-watch
+  {:id :test-watch
+   :target :node-test
+   :output-to "out/node-tests.js"
    :ns-regexp "-test$"
    :autorun true}
 
