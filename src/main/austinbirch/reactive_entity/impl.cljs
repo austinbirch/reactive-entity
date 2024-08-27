@@ -250,7 +250,8 @@
 
 (defn exists?
   [^ReactiveEntity this]
-  (some? (reactive-entity-lookup this :db/id nil)))
+  (and (instance? ReactiveEntity this)
+       (some? (reactive-entity-lookup this :db/id nil))))
 
 (defn equiv-entity
   [^ReactiveEntity this that]

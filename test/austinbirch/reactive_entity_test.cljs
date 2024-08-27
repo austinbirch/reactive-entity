@@ -13,6 +13,9 @@
         <entity (re/entity 1)]
     (is (false? (re/exists? <entity)))))
 
+(deftest test-does-not-exist-if-nil
+  (is (false? (re/exists? nil))))
+
 (deftest test-exists-after-adding
   (let [conn (d/create-conn)
         _ (re/init! conn)
