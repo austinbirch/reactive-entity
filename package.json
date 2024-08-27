@@ -9,7 +9,7 @@
     "test:watch": "shadow-cljs watch test-watch"
   },
   "name": "reactive-entity",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "index.js",
   "repository": "git@github.com:austinbirch/reactive-entity.git",
   "author": "Austin Birch <austin@austinbirch.co.uk>"
